@@ -14,7 +14,6 @@ def servidor(shm_name, lock):
     shared_data = existing_shm.buf
     
     scores = multiprocessing.Manager().dict()
-    players_responded = set()
 
     for i, q in enumerate(QUESTIONS):
         with lock:
@@ -25,7 +24,6 @@ def servidor(shm_name, lock):
             shared_data[128:132] = str(i).zfill(4).encode('utf-8')  # Identificador da pergunta (4 bytes)
             shared_data[132:136] = b' ' * 4  # Limpa o identificador do jogador
 
-        players_responded.clear()
         print(f"[Servidor] Nova pergunta: {q['question']}")
 
         while True:
@@ -34,9 +32,8 @@ def servidor(shm_name, lock):
                 player_id = shared_data[132:136].tobytes().decode('utf-8').rstrip()
 
             if received_answer and player_id:
-                if received_answer.lower() == q["answer"].lower() and player_id not in players_responded:
+                if received_answer.lower() == q["answer"].lower():
                     scores[player_id] = scores.get(player_id, 0) + 1
-                    players_responded.add(player_id)
                     print(f"[Servidor] Jogador {player_id} respondeu corretamente e marcou 1 ponto!")
                 break
 
@@ -49,12 +46,10 @@ def servidor(shm_name, lock):
 if __name__ == "__main__":
     lock = multiprocessing.Lock()
     
-    # Criar memória compartilhada
     shm = shared_memory.SharedMemory(create=True, size=136)
     print(f"Memória compartilhada criada com o nome: {shm.name}")
     shared_data = shm.buf
 
-    # Passar o nome da memória compartilhada para o processo filho
     server_process = multiprocessing.Process(target=servidor, args=(shm.name, lock))
     server_process.start()
     server_process.join()
