@@ -16,7 +16,7 @@ def cliente(name, shm_name, lock):
         if question:
             print(f"{name} recebeu a pergunta: {question}")
             # Simular uma resposta automática
-            possible_answers = ["Fortaleza", "Sobral", "Juazeiro do Norte", "Quixadá"]
+            possible_answers = ["Fortaleza", "4", "Azul", "Brasilia", "4"]
             answer = random.choice(possible_answers)
             print(f"{name} envia resposta simulada: {answer}")
 
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     lock = multiprocessing.Lock()
     
     # Recuperar o nome da memória compartilhada
-    shm_name = "wnsm_5aa05575"
+    shm_name = "wnsm_318ed89a"
 
     # Iniciar processos clientes
     players = ["Jogador 1", "Jogador 2", "Jogador 3", "Jogador 4"]
