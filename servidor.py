@@ -1,5 +1,6 @@
 import multiprocessing
 from multiprocessing import shared_memory
+import time
 
 QUESTIONS = [
     {"question": "Qual a capital do Ceará?", "answer": "Fortaleza"},
@@ -41,6 +42,8 @@ def servidor(shm_name, lock):
     for player, score in scores.items():
         print(f"{player}: {score} pontos")
 
+    # Condição para terminar o loop
+    print("[Servidor] Todas as perguntas foram respondidas. O jogo terminou.")
     existing_shm.close()
 
 if __name__ == "__main__":
