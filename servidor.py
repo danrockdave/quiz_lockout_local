@@ -1,8 +1,8 @@
 import multiprocessing
 from multiprocessing import shared_memory
-import os
+import time
 
-# Lista de perguntas e respostas que o servidor vai enviar aos clientes
+# Define as perguntas e respostas.
 QUESTIONS = [
     {"question": "\nQual a capital do Ceará?\nA: Fortaleza\nB: Itapipoca\nC: Maranguape\nD: Caucaia\n", "answer": "A"},
     {"question": "\nQuanto é 2 + 2?\nA: 1\nB: 2\nC: 3\nD: 4\n", "answer": "D"},
@@ -11,7 +11,7 @@ QUESTIONS = [
     {"question": "\nQual a raiz quadrada de 16?\nA: 8\nB: 2\nC: 4\nD: 12\n", "answer": "C"}
 ]
 
-# Função principal do servidor, responsável por controlar o jogo
+# Função do servidor para controlar o fluxo do jogo.
 def servidor(shm_name, lock, player_count):
     # Conecta à memória compartilhada já criada
     existing_shm = shared_memory.SharedMemory(name=shm_name)
@@ -38,50 +38,56 @@ def servidor(shm_name, lock, player_count):
             
             # Limpa o espaço onde será armazenado o identificador do jogador
             shared_data[324:328] = b' ' * 4
+            
+            # Reseta o contador de respostas
+            shared_data[340:344] = b'0000'
+
+            # Reseta a flag de resposta correta
+            shared_data[344:348] = b'0000'  # Inicializando com "não respondido"
 
         print(f"[Servidor] Nova pergunta: {q['question']}")
 
+        # Espera até que todos os jogadores respondam ou uma resposta correta seja dada
         while True:
             with lock:
-                # Lê a resposta que o cliente escreveu na memória compartilhada
+                response_count = int(shared_data[340:344].tobytes().decode('utf-8'))
+                correct_answered = int(shared_data[344:348].tobytes().decode('utf-8'))
+            if response_count >= player_count or correct_answered:
+                break
+            time.sleep(1)  # Aguarda um pouco antes de verificar novamente
+
+        # Processa as respostas recebidas
+        with lock:
+            for player_id in range(1, player_count + 1):
+                player_id_str = f"Jogador {player_id}"
                 received_answer = shared_data[256:320].tobytes().decode('utf-8').rstrip()
-                
-                # Lê o identificador do jogador (Jogador 1, Jogador 2, etc.)
-                player_id = shared_data[324:328].tobytes().decode('utf-8').rstrip()
 
-            # Se o jogador já enviou uma resposta e um identificador
-            if received_answer and player_id:
-                # Verifica se a resposta está correta
-                if received_answer.lower() == q["answer"].lower():
+                # Verifica se a resposta está correta e nenhuma resposta correta foi dada anteriormente
+                if received_answer.lower() == q["answer"].lower() and not correct_answered:
                     # Adiciona 1 ponto ao jogador se a resposta estiver certa
-                    scores[player_id] = scores.get(player_id, 0) + 1
-                    print(f"[Servidor] Jogador {player_id} respondeu corretamente e marcou 1 ponto!")
-                else:
-                    print(f"[Servidor] Jogador {player_id} respondeu incorretamente.")
-                break  # Sai do loop para enviar a próxima pergunta
+                    scores[player_id_str] = scores.get(player_id_str, 0) + 1
+                    shared_data[344:348] = b'0001'  # Marca que a resposta correta foi dada
+                    print(f"[Servidor] {player_id_str} respondeu corretamente primeiro e marcou 1 ponto!")
 
-    # Exibe as pontuações finais após todas as perguntas terem sido feitas
+    # Determina o jogador com a maior pontuação
+    max_score = max(scores.values(), default=0)
+    winners = [player for player, score in scores.items() if score == max_score]
+
     print("\n[Servidor] Pontuações Finais:")
-    player_winner = ''
-    higher_score = 0
-    for player, score in scores.items():
-        if score > higher_score:
-            player_winner = player
-            higher_score = score
-        print(f"{player}: {score} pontos")
-    
+    for player_id, score in scores.items():
+        print(f"{player_id}: {score} pontos")
+    if winners:
+        print(f"Os vencedores são: {', '.join(winners)} com {max_score} pontos cada.")
+
     # Marca o jogo como "ACABOU" e grava o nome do vencedor na memória compartilhada
     shared_data[328:334] = b"ACABOU"
-    shared_data[334:334+len(player_winner)] = player_winner.encode('utf-8')
-
-    print("[Servidor] Todas as perguntas foram respondidas. O jogo terminou.")
     existing_shm.close()
 
 if __name__ == "__main__":
     lock = multiprocessing.Lock()
 
     # Cria a memória compartilhada que será usada para armazenar as perguntas e respostas
-    shm = shared_memory.SharedMemory(create=True, size=339)
+    shm = shared_memory.SharedMemory(create=True, size=348)
     print(f"Memória compartilhada criada com o nome: {shm.name}")
     shared_data = shm.buf
 
@@ -93,8 +99,11 @@ if __name__ == "__main__":
     with open("player_count.txt", "w") as f:
         f.write("0")
 
+    # Define o número de jogadores esperados
+    player_count = 4
+
     # Inicia o processo do servidor, que vai controlar o jogo
-    server_process = multiprocessing.Process(target=servidor, args=(shm.name, lock, None))
+    server_process = multiprocessing.Process(target=servidor, args=(shm.name, lock, player_count))
     server_process.start()
     server_process.join()
 

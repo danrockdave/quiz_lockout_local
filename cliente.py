@@ -2,12 +2,11 @@ import multiprocessing
 from multiprocessing import shared_memory
 import time
 
-# Função que executa o cliente e permite ao jogador interagir com o jogo
 def cliente(shm_name, lock):
     # Conecta-se à memória compartilhada usando o nome fornecido pelo servidor
     existing_shm = shared_memory.SharedMemory(name=shm_name)
     shared_data = existing_shm.buf
-    
+
     # Atribui um nome ao jogador (Jogador 1, Jogador 2, etc.) com base no valor no arquivo player_count.txt
     with open("player_count.txt", "r+") as f:
         # Lê o valor atual no arquivo, que indica quantos jogadores já se conectaram
@@ -34,10 +33,11 @@ def cliente(shm_name, lock):
             # Verifica se o jogo acabou (quando o servidor escreve "ACABOU" na memória)
             if shared_data[328:334].tobytes().decode('utf-8').rstrip() == 'ACABOU':
                 # Verifica se o jogador atual é o vencedor
-                if shared_data[334:338].tobytes().decode('utf-8').rstrip() == player_name:
-                    print("você ganhou!")
+                winner_name_length = len(shared_data[334:338].tobytes().decode('utf-8').rstrip())
+                if shared_data[334:334+winner_name_length].tobytes().decode('utf-8').rstrip() == player_name:
+                    print(f"{player_name} ganhou!")
                 else:
-                    print(f"{shared_data[334:338].tobytes().decode('utf-8').rstrip()} ganhou!")
+                    print(f"{shared_data[334:334+winner_name_length].tobytes().decode('utf-8').rstrip()} ganhou!")
                 break  # Sai do loop e encerra o jogo
             time.sleep(1)  # Espera um pouco antes de tentar ler a memória novamente
             continue
@@ -48,8 +48,7 @@ def cliente(shm_name, lock):
         print(f"{player_name} recebeu a pergunta: {question}")
         
         # Solicita a resposta do jogador
-        answer = input(f"{player_name}, digite sua resposta: ")
-        print(f"{player_name} enviou a resposta: {answer}")
+        answer = input(f"{player_name}, digite sua resposta (A, B, C, ou D): ")
         
         with lock:
             # Armazena a resposta do jogador na memória compartilhada para que o servidor possa ler
@@ -59,6 +58,10 @@ def cliente(shm_name, lock):
             player_name_bytes = player_name.encode('utf-8')[:4]
             player_name_bytes += b' ' * (4 - len(player_name_bytes))  # Preenche o restante dos 4 bytes com espaços
             shared_data[324:328] = player_name_bytes  # Escreve o nome do jogador na memória
+            
+            # Incrementa o contador de respostas
+            response_count = int(shared_data[340:344].tobytes().decode('utf-8'))
+            shared_data[340:344] = str(response_count + 1).zfill(4).encode('utf-8')
 
     existing_shm.close()  # Fecha a conexão com a memória compartilhada
 
