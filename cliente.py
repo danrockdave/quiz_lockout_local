@@ -2,52 +2,72 @@ import multiprocessing
 from multiprocessing import shared_memory
 import time
 
-def cliente(name, shm_name, lock):
+# Função que executa o cliente e permite ao jogador interagir com o jogo
+def cliente(shm_name, lock):
+    # Conecta-se à memória compartilhada usando o nome fornecido pelo servidor
     existing_shm = shared_memory.SharedMemory(name=shm_name)
     shared_data = existing_shm.buf
     
-    last_question_id = -1
+    # Atribui um nome ao jogador (Jogador 1, Jogador 2, etc.) com base no valor no arquivo player_count.txt
+    with open("player_count.txt", "r+") as f:
+        # Lê o valor atual no arquivo, que indica quantos jogadores já se conectaram
+        count = int(f.read().strip())
+        
+        # O novo jogador recebe um nome com base no valor atual
+        player_name = f"Jogador {count + 1}"
+        
+        # Atualiza o arquivo com o novo valor para o próximo jogador
+        f.seek(0)
+        f.write(str(count + 1))
+
+    last_question_id = -1  # Variável que guarda o ID da última pergunta recebida
 
     while True:
         with lock:
-            question = shared_data[0:64].tobytes().decode('utf-8').rstrip()
-            question_id = shared_data[128:132].tobytes().decode('utf-8').rstrip()
-            previous_player = shared_data[132:136].tobytes().decode('utf-8').rstrip()
+            # Lê a pergunta da memória compartilhada, que foi escrita pelo servidor
+            question = shared_data[0:256].tobytes().decode('utf-8').rstrip()
+            # Lê o ID da pergunta atual
+            question_id = shared_data[320:324].tobytes().decode('utf-8').rstrip()
 
-        # Se não há mais perguntas novas, terminamos o jogo
-        if not question or question_id == last_question_id:
-            print(f"{name}: Todas as perguntas foram respondidas. Encerrando o jogo.")
-            break
+        # Verifica se a pergunta já foi respondida e se o jogo terminou
+        if question_id == last_question_id:
+            # Verifica se o jogo acabou (quando o servidor escreve "ACABOU" na memória)
+            if shared_data[328:334].tobytes().decode('utf-8').rstrip() == 'ACABOU':
+                # Verifica se o jogador atual é o vencedor
+                if shared_data[334:338].tobytes().decode('utf-8').rstrip() == player_name:
+                    print("você ganhou!")
+                else:
+                    print(f"{shared_data[334:338].tobytes().decode('utf-8').rstrip()} ganhou!")
+                break  # Sai do loop e encerra o jogo
+            time.sleep(1)  # Espera um pouco antes de tentar ler a memória novamente
+            continue
 
-        last_question_id = question_id
+        last_question_id = question_id  # Atualiza o ID da última pergunta recebida
 
-        print(f"{name} recebeu a pergunta: {question}")
+        # Exibe a pergunta ao jogador
+        print(f"{player_name} recebeu a pergunta: {question}")
         
-        # Captura a resposta do jogador manualmente
-        answer = input(f"{name}, digite sua resposta: ")
-        print(f"{name} enviou a resposta: {answer}")
-
+        # Solicita a resposta do jogador
+        answer = input(f"{player_name}, digite sua resposta: ")
+        print(f"{player_name} enviou a resposta: {answer}")
+        
         with lock:
-            if previous_player == '':  # Verifica se a pergunta já foi respondida
-                shared_data[64:128] = answer.encode('utf-8') + b' ' * (64 - len(answer))  # Escreve a resposta na memória compartilhada
-                
-                # Garantir que o nome tenha exatamente 4 bytes
-                player_name_bytes = name.encode('utf-8')[:4]  # Truncar para 4 bytes se necessário
-                player_name_bytes += b' ' * (4 - len(player_name_bytes))  # Completar para 4 bytes se necessário
+            # Armazena a resposta do jogador na memória compartilhada para que o servidor possa ler
+            shared_data[256:320] = answer.encode('utf-8') + b' ' * (64 - len(answer))
+            
+            # Armazena o nome do jogador (truncado para caber em 4 bytes)
+            player_name_bytes = player_name.encode('utf-8')[:4]
+            player_name_bytes += b' ' * (4 - len(player_name_bytes))  # Preenche o restante dos 4 bytes com espaços
+            shared_data[324:328] = player_name_bytes  # Escreve o nome do jogador na memória
 
-                shared_data[132:136] = player_name_bytes  # Nome do jogador que respondeu
-            else:
-                print(f"{name}, você foi muito lento, outro jogador já respondeu!")
-
-        time.sleep(1)  # Aguarda antes de tentar ler a próxima pergunta
-
-    existing_shm.close()
+    existing_shm.close()  # Fecha a conexão com a memória compartilhada
 
 if __name__ == "__main__":
-    lock = multiprocessing.Lock()
+    lock = multiprocessing.Lock()  # Cria um lock para controlar o acesso à memória compartilhada
     
-    # Nome da memória compartilhada gerado pelo servidor
-    shm_name = "wnsm_ceef6b56"
-    
-    # Executar o cliente diretamente
-    cliente("Jogador 1", shm_name, lock)
+    # Lê o nome da memória compartilhada a partir do arquivo gerado pelo servidor
+    with open("shm_name.txt", "r") as f:
+        shm_name = f.read().strip()
+
+    # Executa o cliente
+    cliente(shm_name, lock)
