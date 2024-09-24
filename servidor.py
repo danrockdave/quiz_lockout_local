@@ -26,6 +26,7 @@ def servidor(shm_name, lock, player_count):
             # Escreve a pergunta na memória compartilhada, convertendo-a para bytes
             question_text = q["question"].encode('utf-8')
             shared_data[0:len(question_text)] = question_text
+            correct_answer_given = False
             
             # Limpa o espaço restante da pergunta no buffer (caso a pergunta anterior fosse maior)
             shared_data[len(question_text):256] = b' ' * (256 - len(question_text))
@@ -45,29 +46,29 @@ def servidor(shm_name, lock, player_count):
             # Reseta a flag de resposta correta
             shared_data[344:348] = b'0000'  # Inicializando com "não respondido"
 
+            shared_data[349:358] = b' ' * 9  # Limpa o identificador do jogador
+
         print(f"[Servidor] Nova pergunta: {q['question']}")
 
-        # Espera até que todos os jogadores respondam ou uma resposta correta seja dada
+        # Processa as respostas recebidas
         while True:
             with lock:
                 response_count = int(shared_data[340:344].tobytes().decode('utf-8'))
-                correct_answered = int(shared_data[344:348].tobytes().decode('utf-8'))
-            if response_count >= player_count or correct_answered:
-                break
-            time.sleep(1)  # Aguarda um pouco antes de verificar novamente
+                for player_id in range(1, player_count + 1):
+                    received_answer = shared_data[256:320].tobytes().decode('utf-8').rstrip()
 
-        # Processa as respostas recebidas
-        with lock:
-            for player_id in range(1, player_count + 1):
-                player_id_str = f"Jogador {player_id}"
-                received_answer = shared_data[256:320].tobytes().decode('utf-8').rstrip()
-
-                # Verifica se a resposta está correta e nenhuma resposta correta foi dada anteriormente
-                if received_answer.lower() == q["answer"].lower() and not correct_answered:
-                    # Adiciona 1 ponto ao jogador se a resposta estiver certa
-                    scores[player_id_str] = scores.get(player_id_str, 0) + 1
-                    shared_data[344:348] = b'0001'  # Marca que a resposta correta foi dada
-                    print(f"[Servidor] {player_id_str} respondeu corretamente primeiro e marcou 1 ponto!")
+                    # Verifica se a resposta está correta e nenhuma resposta correta foi dada anteriormente
+                    if received_answer.lower() == q["answer"].lower() and not correct_answer_given:
+                        player_id_str = shared_data[349:358].tobytes().decode('utf-8').rstrip()
+                        # Adiciona 1 ponto ao jogador se a resposta estiver certa
+                        scores[player_id_str] = scores.get(player_id_str, 0) + 1
+                        shared_data[344:348] = b'0001'  # Marca que a resposta correta foi dada
+                        print(f"[Servidor] {player_id_str} respondeu corretamente primeiro e marcou 1 ponto!")
+                        correct_answer_given = True
+                        break  # Sai do loop após encontrar a primeira resposta correta
+                
+                if response_count >= player_count:
+                    break
 
     # Determina o jogador com a maior pontuação
     max_score = max(scores.values(), default=0)
@@ -77,17 +78,25 @@ def servidor(shm_name, lock, player_count):
     for player_id, score in scores.items():
         print(f"{player_id}: {score} pontos")
     if winners:
-        print(f"Os vencedores são: {', '.join(winners)} com {max_score} pontos cada.")
+        print(f"O vencedor é: {', '.join(winners)} com {max_score} pontos.")
 
     # Marca o jogo como "ACABOU" e grava o nome do vencedor na memória compartilhada
     shared_data[328:334] = b"ACABOU"
+
+    # Converte o nome do vencedor em bytes e escreve na memória compartilhada
+    if winners:
+        winner_name = winners[0].encode('utf-8')
+        shared_data[334:334 + len(winner_name)] = winner_name  # Escreve o nome do vencedor
+        # Preenche o restante do espaço com espaços em branco para evitar dados residuais
+        shared_data[334 + len(winner_name):354] = b' ' * (354 - (334 + len(winner_name)))
+
     existing_shm.close()
 
 if __name__ == "__main__":
     lock = multiprocessing.Lock()
 
     # Cria a memória compartilhada que será usada para armazenar as perguntas e respostas
-    shm = shared_memory.SharedMemory(create=True, size=348)
+    shm = shared_memory.SharedMemory(create=True, size=358, )
     print(f"Memória compartilhada criada com o nome: {shm.name}")
     shared_data = shm.buf
 
